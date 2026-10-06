@@ -1,67 +1,58 @@
 using System;
-using System.Collections.Concurrent;
-using Microsoft.Extensions.DependencyInjection;
+using Prism.Ioc;
 
 namespace LogDemo.App.Net.Commands;
 
 // ---------------------------------------------------------------------------
-// A single command factory for Microsoft.Extensions.DependencyInjection,
-// replacing DryIoc's Func<CustomersViewModel, TCommand> wrappers.
+// Prism command factory using ContainerLocator: replaces DryIoc's
+// Func<CustomersViewModel, TCommand> wrappers with a static helper, so the
+// view model needs no factory in its constructor. Container-agnostic (works
+// on DryIoc, Unity, etc.).
 //
-// 1. Register once at startup:
+// 1. Register the commands in App.RegisterTypes (transient, so every view
+//    model instance gets its own commands):
 //
-//        services.AddLogging();
-//        services.AddTransient<ICommandFactory, CommandFactory>();
-//        services.AddTransient<CustomersViewModel>();
-//        // plus whatever services the commands depend on.
-//        // The commands themselves do NOT need registering.
+//        containerRegistry.Register<LoadCustomersCommand>();
+//        containerRegistry.Register<RemoveCustomerCommand>();
 //
-// 2. The view model takes one factory instead of one Func per command:
+// 2. In the view model, drop the Func parameters and create the commands:
 //
-//        public CustomersViewModel(ICommandFactory commandFactory, ILogger<CustomersViewModel> logger)
+//        public CustomersViewModel(ILogger<CustomersViewModel> logger)
 //        {
-//            ArgumentNullException.ThrowIfNull(commandFactory);
 //            this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
 //
-//            LoadCommand = commandFactory.Create<LoadCustomersCommand>(this);
-//            RemoveCommand = commandFactory.Create<RemoveCustomerCommand>(this);
+//            LoadCommand = CommandFactory.Create<LoadCustomersCommand>(this);
+//            RemoveCommand = CommandFactory.Create<RemoveCustomerCommand>(this);
 //        }
 //
 // The command classes stay exactly as they are: the view model passed to
 // Create fills the constructor parameter of its type, and everything else
-// (services, ILogger<TCommand>) is resolved from the container.
+// (services, ILogger<TCommand>) is resolved by the container. Nothing is
+// cached here; each call returns a new command bound to the given view model.
+//
+// Unit tests: point ContainerLocator at a test container with
+// ContainerLocator.SetContainerExtension(...) and call
+// ContainerLocator.ResetContainer() afterwards, since the locator is global.
 // ---------------------------------------------------------------------------
 
 /// <summary>Creates commands that need their owning view model at construction time.</summary>
-public interface ICommandFactory
+public static class CommandFactory
 {
     /// <summary>
-    /// Builds <typeparamref name="TCommand"/>, passing <paramref name="viewModel"/> to the
-    /// constructor parameter of its type and resolving all other parameters from the container.
+    /// Resolves a new <typeparamref name="TCommand"/> from Prism's container, passing
+    /// <paramref name="viewModel"/> to the constructor parameter of its type and resolving
+    /// all other parameters normally.
     /// </summary>
-    TCommand Create<TCommand>(object viewModel) where TCommand : class;
-}
-
-/// <summary><see cref="ActivatorUtilities"/>-backed <see cref="ICommandFactory"/>.</summary>
-public sealed class CommandFactory : ICommandFactory
-{
-    // One compiled constructor delegate per (command type, view model type), shared across instances.
-    private static readonly ConcurrentDictionary<(Type Command, Type ViewModel), ObjectFactory> Cache = new();
-
-    private readonly IServiceProvider serviceProvider;
-
-    // Register as transient so this is the current scope's provider, not the root.
-    public CommandFactory(IServiceProvider serviceProvider) =>
-        this.serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
-
-    public TCommand Create<TCommand>(object viewModel) where TCommand : class
+    /// <exception cref="InvalidOperationException">The Prism container has not been initialised.</exception>
+    public static TCommand Create<TCommand>(object viewModel) where TCommand : class
     {
         ArgumentNullException.ThrowIfNull(viewModel);
 
-        ObjectFactory factory = Cache.GetOrAdd(
-            (typeof(TCommand), viewModel.GetType()),
-            key => ActivatorUtilities.CreateFactory(key.Command, new[] { key.ViewModel }));
+        // Read at call time, not cached in a static field, so tests can swap the container.
+        IContainerProvider container = ContainerLocator.Container
+            ?? throw new InvalidOperationException(
+                $"Prism's container is not initialised; cannot create {typeof(TCommand).Name}.");
 
-        return (TCommand)factory(this.serviceProvider, new[] { viewModel });
+        return (TCommand)container.Resolve(typeof(TCommand), (viewModel.GetType(), viewModel));
     }
 }
