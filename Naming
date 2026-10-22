@@ -1,6 +1,17 @@
 Repository   → loads/saves domain entities (commands only)
+               e.g. IEquipmentRepository.GetAsync(id) → EquipmentAsset
+
 ReadService  → DTOs from DB for queries (search, paging, one-off reads)
+               e.g. IEquipmentReadService.SearchAsync(page, size, ...) → PagedResult<EquipmentListItem>
+
 Directory    → keyed DTO lookup, meant to be cached
+               e.g. IEquipmentDirectory.GetAsync(id) → GetEquipment.Response
+
 Reader       → reads from non-DB source (e.g. file)
+               e.g. IEquipmentCatalogueReader.GetCatalogueAsync() → IReadOnlyList<CatalogueItem>
+
 Api          → wraps external HTTP API
+               e.g. IBillingApi.WhoAmIAsync() → DownstreamIdentity
+
 Service      → published in *.Contracts for other modules
+               e.g. IEquipmentReservationService.ReserveAsync(requestId, category) → EquipmentReservationResult
