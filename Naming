@@ -1,0 +1,6 @@
+Repository   → loads/saves domain entities (commands only)
+ReadService  → DTOs from DB for queries (search, paging, one-off reads)
+Directory    → keyed DTO lookup, meant to be cached
+Reader       → reads from non-DB source (e.g. file)
+Api          → wraps external HTTP API
+Service      → published in *.Contracts for other modules
